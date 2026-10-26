@@ -1,0 +1,154 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Big Clock</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@800&family=Instrument+Sans:wght@500&display=swap">
+<style>
+/* Layout: one screen, the time fills the viewport, a quiet control strip fades away when idle */
+:root {
+  --bg: #e9ecf1;
+  --digit: #18233a;
+  --muted: #6a7488;
+  --chip: #d9dee7;
+  --chip-on: #18233a;
+  --chip-on-fg: #e9ecf1;
+  --font-digit: "Big Shoulders Display", "Arial Narrow", "Helvetica Neue", sans-serif;
+  --font-ui: "Instrument Sans", -apple-system, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d1017; --digit: #f2b45a; --muted: #7d7462;
+    --chip: #1b2029; --chip-on: #f2b45a; --chip-on-fg: #0d1017; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0d1017; --digit: #f2b45a; --muted: #7d7462;
+  --chip: #1b2029; --chip-on: #f2b45a; --chip-on-fg: #0d1017; color-scheme: dark;
+}
+html, body { height: 100%; }
+body {
+  background: var(--bg); color: var(--digit);
+  font-family: var(--font-ui);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  overflow: hidden; cursor: default; user-select: none; -webkit-user-select: none;
+  transition: background-color .3s, color .3s;
+}
+.stage {
+  height: 100%; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 1.5vh;
+}
+.time {
+  font-family: var(--font-digit); font-weight: 800;
+  font-size: min(42vw, 78vh); line-height: .82;
+  display: flex; align-items: baseline; letter-spacing: -.01em;
+}
+.d { display: inline-block; width: .52em; text-align: center; }
+.colon { display: inline-block; width: .26em; text-align: center; transform: translateY(-.06em); }
+.date {
+  font-size: clamp(14px, 2.6vmin, 28px); color: var(--muted);
+  letter-spacing: .08em; text-transform: uppercase; font-weight: 500;
+}
+.bar {
+  position: fixed; left: 0; right: 0; bottom: 0;
+  padding: 12px max(16px, env(safe-area-inset-right, 0px)) calc(14px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+  display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px;
+  transition: opacity .5s;
+}
+.idle .bar { opacity: 0; pointer-events: none; }
+.idle { cursor: none; }
+.seg { display: inline-flex; background: var(--chip); border-radius: 999px; padding: 3px; gap: 2px; }
+button {
+  font: 500 13px/1 var(--font-ui); letter-spacing: .03em;
+  background: var(--chip); color: var(--muted);
+  border: 0; border-radius: 999px; padding: 10px 14px; cursor: pointer;
+}
+.seg button { padding: 7px 12px; }
+button[aria-pressed="true"] { background: var(--chip-on); color: var(--chip-on-fg); }
+button:focus-visible { outline: 2px solid var(--digit); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { body, .bar { transition: none; } }
+</style>
+
+<div class="stage">
+  <div class="time" aria-live="off">
+    <span class="d" id="h1">1</span><span class="d" id="h2">1</span><span class="colon">:</span><span class="d" id="m1">3</span><span class="d" id="m2">7</span>
+  </div>
+  <div class="date" id="date">Monday, 26 October</div>
+</div>
+
+<div class="bar">
+  <div class="seg" role="group" aria-label="Appearance">
+    <button id="t-auto" type="button" data-mode="auto" aria-pressed="true">Auto</button>
+    <button id="t-light" type="button" data-mode="light" aria-pressed="false">Light</button>
+    <button id="t-dark" type="button" data-mode="dark" aria-pressed="false">Dark</button>
+  </div>
+  <button id="awake" type="button" aria-pressed="false">Keep screen on</button>
+  <button id="fs" type="button">Full screen</button>
+</div>
+
+<script>
+(function () {
+  const $ = id => document.getElementById(id);
+  const root = document.documentElement;
+  const hostTheme = root.getAttribute('data-theme');
+  let mode = 'auto';
+  try { mode = localStorage.getItem('bigclock.theme') || 'auto'; } catch (e) {}
+
+  function applyTheme() {
+    if (mode === 'auto') {
+      if (hostTheme) root.setAttribute('data-theme', hostTheme); else root.removeAttribute('data-theme');
+    } else root.setAttribute('data-theme', mode);
+    document.querySelectorAll('.seg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mode === mode)));
+  }
+  document.querySelectorAll('.seg button').forEach(b => b.addEventListener('click', () => {
+    mode = b.dataset.mode;
+    try { localStorage.setItem('bigclock.theme', mode); } catch (e) {}
+    applyTheme();
+  }));
+
+  function render() {
+    const now = new Date();
+    const hs = String(now.getHours()).padStart(2, '0');
+    const ms = String(now.getMinutes()).padStart(2, '0');
+    $('h1').textContent = hs[0]; $('h2').textContent = hs[1];
+    $('m1').textContent = ms[0]; $('m2').textContent = ms[1];
+    $('date').textContent = now.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
+  }
+  function tick() { render(); setTimeout(tick, 1000 - (Date.now() % 1000) + 5); }
+
+  let wakeLock = null;
+  function syncAwake() { $('awake').setAttribute('aria-pressed', String(!!wakeLock)); }
+  $('awake').onclick = async () => {
+    if (wakeLock) { try { await wakeLock.release(); } catch (e) {} wakeLock = null; syncAwake(); return; }
+    if (!('wakeLock' in navigator)) { $('awake').textContent = 'Screen lock unavailable'; return; }
+    try {
+      wakeLock = await navigator.wakeLock.request('screen');
+      wakeLock.addEventListener('release', () => { wakeLock = null; syncAwake(); });
+    } catch (e) { wakeLock = null; $('awake').textContent = 'Screen lock unavailable'; }
+    syncAwake();
+  };
+
+  $('fs').onclick = async () => {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else await root.requestFullscreen();
+    } catch (e) { $('fs').textContent = 'Full screen unavailable'; }
+  };
+  document.addEventListener('fullscreenchange', () => {
+    $('fs').textContent = document.fullscreenElement ? 'Exit full screen' : 'Full screen';
+  });
+
+  let idleTimer;
+  function wake() {
+    document.body.classList.remove('idle');
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => document.body.classList.add('idle'), 3500);
+  }
+  ['mousemove', 'touchstart', 'keydown', 'click'].forEach(ev => document.addEventListener(ev, wake, { passive: true }));
+
+  applyTheme(); tick(); wake();
+})();
+</script>
+
+</body></html>
