@@ -129,17 +129,30 @@ button:focus-visible { outline: 2px solid var(--digit); outline-offset: 2px; }
   }
   function tick() { render(); setTimeout(tick, 1000 - (Date.now() % 1000) + 5); }
 
+  // Keep screen on: the choice is remembered, and the lock is re-acquired
+  // whenever the app comes back to the foreground (iOS drops it when hidden).
   let wakeLock = null;
-  function syncAwake() { $('awake').setAttribute('aria-pressed', String(!!wakeLock)); }
-  $('awake').onclick = async () => {
-    if (wakeLock) { try { await wakeLock.release(); } catch (e) {} wakeLock = null; syncAwake(); return; }
-    if (!('wakeLock' in navigator)) { $('awake').textContent = 'Screen lock unavailable'; return; }
+  let wantAwake = false;
+  try { wantAwake = localStorage.getItem('bigclock.awake') === '1'; } catch (e) {}
+  function syncAwake() { $('awake').setAttribute('aria-pressed', String(wantAwake)); }
+  async function acquire() {
+    if (!wantAwake || wakeLock || document.visibilityState !== 'visible') return;
+    if (!('wakeLock' in navigator)) { $('awake').textContent = "Screen can't stay on"; return; }
     try {
       wakeLock = await navigator.wakeLock.request('screen');
-      wakeLock.addEventListener('release', () => { wakeLock = null; syncAwake(); });
-    } catch (e) { wakeLock = null; $('awake').textContent = 'Screen lock unavailable'; }
+      wakeLock.addEventListener('release', () => { wakeLock = null; });
+    } catch (e) { wakeLock = null; }
+  }
+  $('awake').onclick = async () => {
+    wantAwake = !wantAwake;
+    try { localStorage.setItem('bigclock.awake', wantAwake ? '1' : '0'); } catch (e) {}
     syncAwake();
+    if (wantAwake) await acquire();
+    else if (wakeLock) { try { await wakeLock.release(); } catch (e) {} wakeLock = null; }
   };
+  document.addEventListener('visibilitychange', acquire);
+  // Some browsers only grant the lock after a tap, so retry on the first touch too.
+  ['touchend', 'click'].forEach(ev => document.addEventListener(ev, acquire, { passive: true }));
 
   $('fs').onclick = async () => {
     try {
@@ -159,7 +172,7 @@ button:focus-visible { outline: 2px solid var(--digit); outline-offset: 2px; }
   }
   ['mousemove', 'touchstart', 'keydown', 'click'].forEach(ev => document.addEventListener(ev, wake, { passive: true }));
 
-  applyTheme(); tick(); wake();
+  applyTheme(); syncAwake(); acquire(); tick(); wake();
 })();
 </script>
 </body>
